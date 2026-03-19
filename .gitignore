@@ -1,1 +1,8 @@
 data/
+env_mlops_classifier/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+models/
