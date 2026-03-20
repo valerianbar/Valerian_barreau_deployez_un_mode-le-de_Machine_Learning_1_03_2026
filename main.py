@@ -3,8 +3,8 @@ from src.model import predict
 
 data = {
     # ===== NUMÉRIQUES (toutes obligatoires) =====
-    "age": 23,
-    "revenu_mensuel": 2000,
+    "age": 35,
+    "revenu_mensuel": 5000,
     "nombre_experiences_precedentes": 3,
     "nombre_heures_travailless": 40,
     "annee_experience_totale": 10,
@@ -26,7 +26,7 @@ data = {
     "annes_sous_responsable_actuel": 2,
     "ratio_stagnation": 0.33,
     "satisfaction_globale": 1.0,
-    "stress": 5,
+    "stress": 1,
 
     # ===== CATÉGORIELLES =====
     "genre": "M",
