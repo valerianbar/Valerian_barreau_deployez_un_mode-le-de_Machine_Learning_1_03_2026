@@ -20,7 +20,7 @@ def load_model():
 
 # ── LOAD DATA FROM DB ──────────────────────────────
 def load_employee(employee_id):
-    query = text("SELECT * FROM employes WHERE id_employee = :id")
+    query = text("SELECT * FROM employees WHERE id_employee = :id")
     return pd.read_sql(query, engine, params={"id": employee_id})
 
 def predict(employee_id: int):
