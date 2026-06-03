@@ -45,3 +45,4 @@ def get_tables():
 if __name__ == "__main__":
     test_connection()
     get_tables()
+

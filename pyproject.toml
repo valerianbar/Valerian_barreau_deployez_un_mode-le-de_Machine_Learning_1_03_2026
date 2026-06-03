@@ -135,3 +135,23 @@ dependencies = [
     "widgetsnbextension==4.0.15",
     "xgboost==3.1.1",
 ]
+
+[tool.ruff]
+# On lint uniquement le code de prod, pas les notebooks d'exploration
+# ni les environnements virtuels
+extend-exclude = [
+    "*.ipynb",
+    ".venv",
+    "env_mlops_classifier",
+    "__pycache__",
+]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+# Règles activées : erreurs Pyflakes (F) + erreurs pycodestyle (E)
+# Cf. https://docs.astral.sh/ruff/rules/
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # ligne trop longue (géré par formatter)
+]

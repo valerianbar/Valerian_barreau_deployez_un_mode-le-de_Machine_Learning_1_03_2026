@@ -52,7 +52,7 @@ def predict(employee_id: int):
         "prediction": prediction,        # 1 = quitte
         "probability": float(prob_quit)
     }
-   
+
 # ── RUN ────────────────────────────────────────────
 def run(employee_id):
     result = predict(employee_id)
