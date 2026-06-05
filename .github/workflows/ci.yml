@@ -84,35 +84,42 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Start stack
-        run: docker compose up -d
+      # On lance l'image en standalone avec un DATABASE_URL bidon.
+      # L'endpoint GET / ne touche pas à la DB ni au modèle,
+      # donc on peut le tester sans Postgres ni model.pkl hydraté.
+      - name: Run API container (standalone, mocked DB)
+        run: |
+          docker run -d --name api-smoke \
+            -p 7860:7860 \
+            -e DATABASE_URL="postgresql://fake:fake@127.0.0.1:9999/fake" \
+            mlops-rh-api:ci
 
       - name: Wait for API
         run: |
           for i in {1..30}; do
-            if curl -fs http://localhost:8000/ > /dev/null; then
-              echo "API is up"
+            if curl -fs http://localhost:7860/ > /dev/null; then
+              echo "✅ API is up"
               exit 0
             fi
             sleep 2
           done
-          echo "API did not start in time"
-          docker compose logs
+          echo "❌ API did not start in time"
+          docker logs api-smoke
           exit 1
 
       - name: Smoke test - root endpoint
         run: |
-          response=$(curl -fs http://localhost:8000/)
+          response=$(curl -fs http://localhost:7860/)
           echo "Response: $response"
           echo "$response" | grep -q "API is running"
 
-      - name: Show logs on failure
+      - name: Show container logs on failure
         if: failure()
-        run: docker compose logs
+        run: docker logs api-smoke
 
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker rm -f api-smoke 2>/dev/null || true
 
   # ───────────────────────────────────────────────
   # 3) Push image vers GHCR (uniquement sur main)
