@@ -1,3 +1,13 @@
+---
+title: HR Attrition API
+emoji: 🧑‍💼
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # HR Attrition – API de prédiction de départs employés
 
 Projet MLOps complet : entraînement d'un modèle de classification pour prédire
