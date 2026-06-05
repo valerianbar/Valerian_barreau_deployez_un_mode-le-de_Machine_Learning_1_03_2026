@@ -12,7 +12,18 @@ pinned: false
 
 Projet MLOps complet : entraînement d'un modèle de classification pour prédire
 si un employé va quitter l'entreprise, puis exposition via une API REST,
-le tout conteneurisé avec Docker et déployé via une pipeline CI/CD GitHub Actions.
+le tout conteneurisé avec Docker, testé en CI/CD GitHub Actions
+et **déployé en production sur Hugging Face Spaces avec une base PostgreSQL hébergée sur Neon**.
+
+---
+
+## 🌐 Démo live
+
+| Lien | URL |
+|---|---|
+| 🚀 **API en prod (HF Spaces)** | https://valerian2121-hr-attrition-api.hf.space/ |
+| 📚 **Documentation Swagger** | https://valerian2121-hr-attrition-api.hf.space/docs |
+| 🎯 **Exemple de prédiction** | https://valerian2121-hr-attrition-api.hf.space/predict/1 |
 
 ---
 
@@ -25,6 +36,7 @@ le tout conteneurisé avec Docker et déployé via une pipeline CI/CD GitHub Act
 - [Utilisation de l'API](#utilisation-de-lapi)
 - [Tests](#tests)
 - [CI/CD](#cicd)
+- [Déploiement en production](#déploiement-en-production)
 - [Commandes utiles](#commandes-utiles)
 
 ---
@@ -36,38 +48,52 @@ le tout conteneurisé avec Docker et déployé via une pipeline CI/CD GitHub Act
 | Langage | Python 3.13 |
 | API | FastAPI + Uvicorn |
 | ML | scikit-learn, LightGBM, XGBoost, SHAP |
-| Base de données | PostgreSQL 16 |
+| Base de données (dev) | PostgreSQL 16 via Docker Compose |
+| Base de données (prod) | **Neon** — Postgres managé serverless |
 | ORM | SQLAlchemy |
 | Conteneurisation | Docker + Docker Compose |
+| Stockage modèle | Git LFS (puis Xet sur HF) |
 | Tests | pytest + pytest-cov |
 | Lint | ruff |
 | CI/CD | GitHub Actions |
-| Registry | GHCR (GitHub Container Registry) |
+| Registry image | GHCR (GitHub Container Registry) |
+| Hébergement prod | **Hugging Face Spaces** (SDK Docker) |
 
 ---
 
 ## Architecture
 
+### En développement local
 ```
-┌─────────────────┐       ┌─────────────────┐
-│   Client HTTP   │──────▶│  FastAPI (8000) │
-└─────────────────┘       │  src/api/main   │
-                          └────────┬────────┘
+┌─────────────────┐       ┌──────────────────┐
+│   Client HTTP   │──────▶│  FastAPI (:8000) │
+└─────────────────┘       │  src/api/main    │
+                          └────────┬─────────┘
                                    │ predict(id)
-                          ┌────────▼────────┐
-                          │   src/model.py  │
-                          │  (model.pkl)    │
-                          └────────┬────────┘
+                          ┌────────▼─────────┐
+                          │   src/model.py   │
+                          │  (model.pkl)     │
+                          └────────┬─────────┘
                                    │ SQLAlchemy
-                          ┌────────▼────────┐
-                          │  PostgreSQL 16  │
-                          │  (port 5433)    │
-                          └─────────────────┘
+                          ┌────────▼─────────┐
+                          │  Postgres 16     │
+                          │  Docker (:5433)  │
+                          └──────────────────┘
 ```
+Orchestré par `docker-compose.yml` sur un réseau Docker interne avec healthcheck `pg_isready`.
 
-Les deux services (`api` et `db`) sont orchestrés par `docker-compose.yml` sur
-un réseau Docker interne. L'API attend que Postgres soit `healthy` avant de
-démarrer (healthcheck `pg_isready`).
+### En production
+```
+┌─────────────────┐       ┌────────────────────────┐       ┌─────────────────────┐
+│   Client HTTP   │──────▶│  HF Space (Docker)     │──────▶│  Neon Postgres      │
+│   (browser)     │       │  FastAPI (:7860)       │  SSL  │  eu-central-1.aws   │
+└─────────────────┘       │  src/api/main          │       │  (serverless)       │
+                          └────────────────────────┘       └─────────────────────┘
+                                   ▲
+                                   │ DATABASE_URL (HF secret)
+```
+L'API tourne sur **Hugging Face Spaces** (image Docker, user non-root uid 1000, port 7860)
+et se connecte à **Neon** via SSL grâce au secret `DATABASE_URL` injecté à l'exécution.
 
 ---
 
@@ -214,6 +240,121 @@ L'authentification utilise le `GITHUB_TOKEN` automatique : aucun secret à confi
 
 ---
 
+## Déploiement en production
+
+### Architecture cible
+
+L'application est déployée **gratuitement et sans carte bancaire** sur deux services :
+
+1. **Hugging Face Spaces** (SDK Docker) — héberge l'API
+2. **Neon** — fournit la base PostgreSQL managée
+
+### 1. Base de données : Neon
+
+[Neon](https://neon.tech) est un Postgres serverless qui propose un tier gratuit
+généreux (3 Go, projets illimités, pas de carte). Le projet utilise une instance
+hébergée en `eu-central-1` (Frankfurt).
+
+**Setup initial** :
+
+```bash
+# 1. Créer un compte sur https://neon.tech et un projet "mlops-rh"
+# 2. Récupérer la connection string (Dashboard → Connection string)
+# 3. Importer les CSV dans Neon depuis le conteneur local
+export DATABASE_URL="postgresql://<user>:<pwd>@<host>.neon.tech/neondb?sslmode=require"
+docker compose run --rm \
+  -e DATABASE_URL="$DATABASE_URL" \
+  api python import_data.py
+# → ✅ Tables importées
+```
+
+Vérification du contenu :
+```sql
+SELECT COUNT(*) FROM employees;   -- 1470
+SELECT COUNT(*) FROM evaluations; -- 1470
+SELECT COUNT(*) FROM sondage;     -- 1470
+```
+
+### 2. API : Hugging Face Spaces
+
+Le projet est configuré comme un **Space Docker** : HF lit le Dockerfile à la racine,
+le build et lance le conteneur. Les métadonnées du Space sont déclarées dans
+l'en-tête YAML de ce README :
+
+```yaml
+---
+title: HR Attrition API
+emoji: 🧑‍💼
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+---
+```
+
+**Particularités du Dockerfile pour HF** :
+- Utilisateur non-root `user` (uid 1000) — obligatoire sur HF Spaces
+- Port **7860** au lieu de 8000 — port standard des Spaces
+- Le modèle `models/model.pkl` est tracké via **Git LFS** (HF stocke via Xet)
+
+**Setup initial** :
+
+```bash
+# 1. Créer un Space sur https://huggingface.co/new-space
+#    SDK: Docker → Blank, Hardware: CPU basic (gratuit), Public
+
+# 2. Settings → Variables and secrets → New secret
+#    Name:  DATABASE_URL
+#    Value: postgresql://<user>:<pwd>@<host>.neon.tech/neondb?sslmode=require
+
+# 3. Créer un token Write sur https://huggingface.co/settings/tokens
+
+# 4. Ajouter HF comme remote git et pousser
+git remote add hf https://huggingface.co/spaces/<username>/hr-attrition-api
+git push hf main
+# Username: <username>
+# Password: hf_xxxxxxxxxxxx (le token Write, PAS le mot de passe HF)
+```
+
+### 3. Workflow de déploiement
+
+```
+                    git push origin main
+GitHub ──────────────────────────────────┐
+  │                                      │
+  │ déclenche                            ▼
+  │                            ┌────────────────────┐
+  ▼                            │  GitHub Actions    │
+GHCR (image taggée latest)     │  Lint + Tests +    │
+                               │  Build + Push GHCR │
+                               └────────────────────┘
+
+                    git push hf main
+Hugging Face ─────────────────────────────┐
+  │                                       │
+  │ rebuild auto                          ▼
+  ▼                            ┌─────────────────────┐
+hf.space (API en prod)         │  HF Space (Docker)  │
+                               │  → injection secret │
+                               │  → start uvicorn    │
+                               └─────────────────────┘
+```
+
+À chaque push sur `hf main`, HF rebuild l'image Docker en 5–10 min et redémarre
+le service. La variable d'env `DATABASE_URL` est injectée automatiquement depuis
+les secrets HF.
+
+### 4. Sécurité
+
+- ✅ Aucun secret hardcodé dans le code (tout via `os.getenv("DATABASE_URL")`)
+- ✅ Connexion Postgres chiffrée (`?sslmode=require`)
+- ✅ Le token HF est **Write-only** et révocable
+- ✅ Conteneur lancé en **non-root** (uid 1000) sur HF
+- ✅ Le modèle `model.pkl` est versionné via Git LFS (pas dans l'image source)
+
+---
+
 ## Commandes utiles
 
 ### Docker Compose
@@ -246,9 +387,10 @@ pytest
 
 ## Variables d'environnement
 
-| Variable | Défaut | Description |
+| Variable | Défaut / Source | Description |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://postgres:password@db:5432/rh_db_connect` | URL Postgres (résolution `db` dans le réseau Docker) |
+| `DATABASE_URL` (dev) | `postgresql://postgres:password@db:5432/rh_db_connect` | URL Postgres locale (résolution `db` dans le réseau Docker Compose) |
+| `DATABASE_URL` (prod) | **HF Space secret** | URL Neon : `postgresql://...@*.neon.tech/neondb?sslmode=require` |
 | `COMPOSE_PROJECT_NAME` | `mlops_rh` | Nom de projet Compose stable (évite les bugs d'encodage liés au `è` du dossier) |
 
 ---
